@@ -73,6 +73,7 @@ func TestReqisterNickInUse(t *testing.T) {
 
 	assert.True(t, <-registerPromise)
 
+	assert.NotEqual(t, firstNick, secondNick)
 	assert.NotEqual(t, firstNick, engine.Nick())
 	assert.Equal(t, secondNick, engine.Nick())
 }
