@@ -40,6 +40,7 @@ type PrivMsgDccSendPayload struct {
 }
 
 const (
+	ping             = "PING"
 	privmsg          = "PRIVMSG"
 	rplWelcome       = "001"
 	rplWhoisChannels = "319"
@@ -48,16 +49,34 @@ const (
 	dccSendMsgStart  = "\x01DCC SEND "
 )
 
-var pattern = regexp.MustCompile(fmt.Sprintf("^:\\S* (%s|%s|%s|%s|%s) (\\S*) :?(.*)$", privmsg, rplWhoisChannels, rplWelcome, rplEndOfNames, errNicknameInUse))
-var dccSendMsgPattern = regexp.MustCompile("^\x01?DCC SEND \"?([^\"]*)\"? ([0-9]*) ([0-9]*) ([0-9]*)")
+var pattern = regexp.MustCompile(
+	fmt.Sprintf(
+		"^:\\S* (%s|%s|%s|%s|%s) (\\S*) :?(.*)$",
+		privmsg, rplWhoisChannels, rplWelcome, rplEndOfNames, errNicknameInUse,
+	),
+)
+var pingPattern = regexp.MustCompile(
+	fmt.Sprintf("^(%s) :(\\S*)$", ping),
+)
+var dccSendMsgPattern = regexp.MustCompile(
+	"^\x01?DCC SEND \"?([^\"]*)\"? ([0-9]*) ([0-9]*) ([0-9]*)",
+)
 
 func Parse(line string) Packet {
-	var captures = pattern.FindAllStringSubmatch(line, -1)
+	captures := pingPattern.FindAllStringSubmatch(line, -1)
+
+	if captures == nil {
+		captures = pattern.FindAllStringSubmatch(line, -1)
+	}
 
 	if captures == nil {
 		return Packet{Type: Unknown}
 	}
 	parts := captures[0]
+
+	if parts[1] == ping {
+		return Packet{Type: Ping, Payload: parts[2]}
+	}
 
 	if parts[1] == rplWelcome {
 		return Packet{Type: RplWelcome, Payload: parts[2]}

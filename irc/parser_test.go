@@ -90,3 +90,10 @@ func TestRandomPrivMsg(t *testing.T) {
 
 	assert.Equal(t, Unknown, res.Type)
 }
+
+func TestPing(t *testing.T) {
+	res := Parse("PING :bar")
+
+	assert.Equal(t, Ping, res.Type)
+	assert.Equal(t, "bar", res.Payload)
+}
