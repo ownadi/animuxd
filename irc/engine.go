@@ -223,8 +223,6 @@ func (e *Engine) send(data string) {
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func randNick() string {
-	rand.Seed(time.Now().UnixNano())
-
 	b := make([]rune, nickLength)
 	for i := range b {
 		b[i] = letterRunes[rand.Intn(len(letterRunes))]
