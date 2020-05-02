@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,13 +25,17 @@ type IRCEngine interface {
 // An Engine represents that part of the app which is responsible
 // for handling low-level IRC protocol related stuff.
 type Engine struct {
-	nick               string
-	ircStream          io.ReadWriteCloser
-	ircPacketsChan     chan Packet
-	onRplWelcome       map[string]onPacketCallback
-	onErrNicknameInUse map[string]onPacketCallback
-	onRplEndOfNames    map[string]onPacketCallback
-	onRplWhoisChannels map[string]onPacketCallback
+	nick                    string
+	ircStream               io.ReadWriteCloser
+	ircPacketsChan          chan Packet
+	onRplWelcome            map[string]onPacketCallback
+	onErrNicknameInUse      map[string]onPacketCallback
+	onRplEndOfNames         map[string]onPacketCallback
+	onRplWhoisChannels      map[string]onPacketCallback
+	onRplWelcomeMutex       *sync.Mutex
+	onErrNicknameInUseMutex *sync.Mutex
+	onRplEndOfNamesMutex    *sync.Mutex
+	onRplWhoisChannelsMutex *sync.Mutex
 }
 
 // Nick returns current registered nick.
@@ -51,6 +56,10 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	e.onRplWelcome = map[string]onPacketCallback{}
 	e.onRplEndOfNames = map[string]onPacketCallback{}
 	e.onRplWhoisChannels = map[string]onPacketCallback{}
+	e.onErrNicknameInUseMutex = &sync.Mutex{}
+	e.onRplWelcomeMutex = &sync.Mutex{}
+	e.onRplEndOfNamesMutex = &sync.Mutex{}
+	e.onRplWhoisChannelsMutex = &sync.Mutex{}
 
 	ircScanner := bufio.NewScanner(e.ircStream)
 	r := make(chan Packet, runtime.NumCPU())
@@ -59,32 +68,41 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	go func() {
 		for ircScanner.Scan() {
 			ircLine := ircScanner.Text()
+			fmt.Println(ircLine)
 
 			go func(line string) {
 				packet := Parse(line)
 
 				if packet.Type == RplWelcome {
+					e.onRplWelcomeMutex.Lock()
 					for _, callback := range e.onRplWelcome {
 						callback(packet)
 					}
+					e.onRplWelcomeMutex.Unlock()
 				}
 
 				if packet.Type == ErrNicknameInUse {
+					e.onErrNicknameInUseMutex.Lock()
 					for _, callback := range e.onErrNicknameInUse {
 						callback(packet)
 					}
+					e.onErrNicknameInUseMutex.Unlock()
 				}
 
 				if packet.Type == RplEndOfNames {
+					e.onRplEndOfNamesMutex.Lock()
 					for _, callback := range e.onRplEndOfNames {
 						callback(packet)
 					}
+					e.onRplEndOfNamesMutex.Unlock()
 				}
 
 				if packet.Type == RplWhoisChannels {
+					e.onRplWhoisChannelsMutex.Lock()
 					for _, callback := range e.onRplWhoisChannels {
 						callback(packet)
 					}
+					e.onRplWhoisChannelsMutex.Unlock()
 				}
 
 				if packet.Type == Ping {
@@ -126,8 +144,12 @@ func (e *Engine) Register(timeout int64) <-chan bool {
 				}
 			}
 
+			e.onRplWelcomeMutex.Lock()
 			e.onRplWelcome[currentNick] = welcomeCallback
+			e.onRplWelcomeMutex.Unlock()
+			e.onErrNicknameInUseMutex.Lock()
 			e.onErrNicknameInUse[currentNick] = nickTakenCallback
+			e.onErrNicknameInUseMutex.Unlock()
 
 			e.send(fmt.Sprintf("USER %s * * %s", currentNick, currentNick))
 			e.send(fmt.Sprintf("NICK %s", currentNick))
@@ -139,8 +161,12 @@ func (e *Engine) Register(timeout int64) <-chan bool {
 				registrationSuccess = success
 			}
 
+			e.onRplWelcomeMutex.Lock()
 			delete(e.onRplWelcome, currentNick)
+			e.onRplWelcomeMutex.Unlock()
+			e.onErrNicknameInUseMutex.Lock()
 			delete(e.onErrNicknameInUse, currentNick)
+			e.onErrNicknameInUseMutex.Unlock()
 		}
 
 		r <- true
@@ -171,7 +197,9 @@ func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 				callbackSuccessChann <- true
 			}
 		}
+		e.onRplEndOfNamesMutex.Lock()
 		e.onRplEndOfNames[channelWithoutHash] = callback
+		e.onRplEndOfNamesMutex.Unlock()
 
 		e.send(fmt.Sprintf("JOIN %s", channelWithHash))
 
@@ -182,7 +210,9 @@ func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 			r <- true
 		}
 
+		e.onRplEndOfNamesMutex.Lock()
 		delete(e.onRplEndOfNames, channelWithoutHash)
+		e.onRplEndOfNamesMutex.Unlock()
 	}()
 
 	return r
@@ -210,7 +240,9 @@ func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
 				callbackChann <- payload.channels
 			}
 		}
+		e.onRplWhoisChannelsMutex.Lock()
 		e.onRplWhoisChannels[nick] = callback
+		e.onRplWhoisChannelsMutex.Unlock()
 
 		e.send(fmt.Sprintf("WHOIS %s", nick))
 
@@ -221,7 +253,9 @@ func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
 			r <- channels
 		}
 
+		e.onRplWhoisChannelsMutex.Lock()
 		delete(e.onRplWhoisChannels, nick)
+		e.onRplWhoisChannelsMutex.Unlock()
 	}()
 
 	return r
