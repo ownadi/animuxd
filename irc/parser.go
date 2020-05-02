@@ -33,10 +33,10 @@ type RplWhoisChannelsPayload struct {
 }
 
 type PrivMsgDccSendPayload struct {
-	fileName   string
-	fileLength uint64
-	ip         net.IP
-	port       uint64
+	FileName   string
+	FileLength int64
+	IP         net.IP
+	Port       uint64
 }
 
 const (
@@ -129,7 +129,7 @@ func parseDccSendMsgPayload(data string) (PrivMsgDccSendPayload, error) {
 		msgParts := msgCaptures[0]
 		if msgCaptures != nil && len(msgParts) >= 5 {
 			port, parsePortErr := strconv.ParseUint(msgParts[3], 10, 64)
-			fileLength, parseFileLengthErr := strconv.ParseUint(msgParts[4], 10, 64)
+			fileLength, parseFileLengthErr := strconv.ParseInt(msgParts[4], 10, 64)
 			ipU64, parseIPErr := strconv.ParseUint(msgParts[2], 10, 64)
 
 			ip := make(net.IP, 4)
@@ -139,7 +139,7 @@ func parseDccSendMsgPayload(data string) (PrivMsgDccSendPayload, error) {
 				return PrivMsgDccSendPayload{}, errors.New("Could not parse number")
 			}
 
-			return PrivMsgDccSendPayload{fileName: msgParts[1], ip: ip, port: port, fileLength: fileLength}, nil
+			return PrivMsgDccSendPayload{FileName: msgParts[1], IP: ip, Port: port, FileLength: fileLength}, nil
 		}
 	}
 

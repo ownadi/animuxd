@@ -14,11 +14,19 @@ const nickLength = 7
 
 type onPacketCallback func(Packet)
 
+type IRCEngine interface {
+	IRCPacketsChann() chan Packet
+	Join(channelName string, timeout int64) <-chan bool
+	ChannelsOfUser(nick string, timeout int64) chan []string
+	SendMessage(nick string, body string)
+}
+
 // An Engine represents that part of the app which is responsible
 // for handling low-level IRC protocol related stuff.
 type Engine struct {
 	nick               string
 	ircStream          io.ReadWriteCloser
+	ircPacketsChan     chan Packet
 	onRplWelcome       map[string]onPacketCallback
 	onErrNicknameInUse map[string]onPacketCallback
 	onRplEndOfNames    map[string]onPacketCallback
@@ -30,9 +38,13 @@ func (e *Engine) Nick() string {
 	return e.nick
 }
 
+// IRCPacketsChann returns channel of packets.
+func (e *Engine) IRCPacketsChann() chan Packet {
+	return e.ircPacketsChan
+}
+
 // Start initializes the engine.
-// Returns channel of parsed IRC packets.
-func (e *Engine) Start(ircStream io.ReadWriteCloser) <-chan Packet {
+func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	e.ircStream = ircStream
 	e.nick = ""
 	e.onErrNicknameInUse = map[string]onPacketCallback{}
@@ -42,13 +54,14 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) <-chan Packet {
 
 	ircScanner := bufio.NewScanner(e.ircStream)
 	r := make(chan Packet, runtime.NumCPU())
+	e.ircPacketsChan = r
 
 	go func() {
 		for ircScanner.Scan() {
 			ircLine := ircScanner.Text()
 
-			go func() {
-				packet := Parse(ircLine)
+			go func(line string) {
+				packet := Parse(line)
 
 				if packet.Type == RplWelcome {
 					for _, callback := range e.onRplWelcome {
@@ -79,11 +92,9 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) <-chan Packet {
 				}
 
 				r <- packet
-			}()
+			}(ircLine)
 		}
 	}()
-
-	return r
 }
 
 // Register tries to register IRC nick.
@@ -214,6 +225,11 @@ func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
 	}()
 
 	return r
+}
+
+// SendMessage sends a message to user under given nick.
+func (e *Engine) SendMessage(nick string, body string) {
+	e.send(fmt.Sprintf("PRIVMSG %s :%s", nick, body))
 }
 
 func (e *Engine) send(data string) {

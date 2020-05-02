@@ -188,6 +188,33 @@ func TestChannelsOfUserTimeouts(t *testing.T) {
 
 	scanner.Scan()
 	assert.Equal(t, "WHOIS JohnDoe", scanner.Text())
-
 	assert.Equal(t, []string{}, <-promise)
+}
+
+func TestIRCPacketsChann(t *testing.T) {
+	client, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+
+	chann := engine.IRCPacketsChann()
+
+	client.Write([]byte("FOOBAR\r\n"))
+
+	packet := <-chann
+	assert.Equal(t, Unknown, packet.Type)
+}
+
+func TestSendMessage(t *testing.T) {
+	client, server := net.Pipe()
+	scanner := bufio.NewScanner(client)
+
+	engine := &Engine{}
+	engine.Start(server)
+	go func() {
+		engine.SendMessage("foo", "bar")
+	}()
+
+	scanner.Scan()
+	assert.Equal(t, "PRIVMSG foo :bar", scanner.Text())
 }

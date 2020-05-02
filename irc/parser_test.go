@@ -59,10 +59,10 @@ func TestPrivMsgDccSend(t *testing.T) {
 	payload, ok := res.Payload.(PrivMsgDccSendPayload)
 	assert.True(t, ok)
 
-	assert.Equal(t, "Gin.txt", payload.fileName)
-	assert.Equal(t, uint64(339260), payload.fileLength)
-	assert.Equal(t, uint64(39095), payload.port)
-	assert.Equal(t, "127.0.0.1", payload.ip.String())
+	assert.Equal(t, "Gin.txt", payload.FileName)
+	assert.Equal(t, int64(339260), payload.FileLength)
+	assert.Equal(t, uint64(39095), payload.Port)
+	assert.Equal(t, "127.0.0.1", payload.IP.String())
 }
 
 func TestPrivMsgDccSendWithSpaces(t *testing.T) {
@@ -73,10 +73,10 @@ func TestPrivMsgDccSendWithSpaces(t *testing.T) {
 	payload, ok := res.Payload.(PrivMsgDccSendPayload)
 	assert.True(t, ok)
 
-	assert.Equal(t, "Great Teacher Onizuka - 25 [x264-AC3-DVD][Sakura][C-W][B9F96CF8].mkv", payload.fileName)
-	assert.Equal(t, uint64(541715509), payload.fileLength)
-	assert.Equal(t, uint64(48467), payload.port)
-	assert.Equal(t, "127.0.0.1", payload.ip.String())
+	assert.Equal(t, "Great Teacher Onizuka - 25 [x264-AC3-DVD][Sakura][C-W][B9F96CF8].mkv", payload.FileName)
+	assert.Equal(t, int64(541715509), payload.FileLength)
+	assert.Equal(t, uint64(48467), payload.Port)
+	assert.Equal(t, "127.0.0.1", payload.IP.String())
 }
 
 func TestPrivMsgDccSendBroken(t *testing.T) {
