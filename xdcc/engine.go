@@ -172,6 +172,9 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 
 		var copyErr error
 		if writerErr == nil && dialError == nil {
+			e.downloadsMutex.Lock()
+			e.Downloads[payload.FileName].Status = Downloading
+			e.downloadsMutex.Unlock()
 			_, copyErr = io.CopyN(writer, downloadConn, payload.FileLength)
 			if flusher, isFlusher := writer.(interface{ Flush() error }); isFlusher {
 				flusher.Flush()
