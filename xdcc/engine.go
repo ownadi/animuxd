@@ -2,6 +2,7 @@ package xdcc
 
 import (
 	"animuxd/irc"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -27,7 +28,13 @@ type WriteOpener func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Wri
 
 // Download describes current status and other metadata.
 type Download struct {
-	status DownloadStatus
+	Status DownloadStatus
+}
+
+// DownloadJSON extends Download with some JSON-useful fields.
+type DownloadJSON struct {
+	FileName string
+	*Download
 }
 
 // An Engine represents that part of the app which is responsible
@@ -41,13 +48,18 @@ type Engine struct {
 	downloadsMutex *sync.Mutex
 }
 
+type XDCCEngine interface {
+	RequestFile(botNick string, packageNo int, fileName string) <-chan bool
+	DownloadsJSON(writer io.Writer) error
+}
+
 // Start initializes an engine.
 func (e *Engine) Start(ircEngine irc.IRCEngine, dialer Dialer, writeOpener WriteOpener, unsafe bool) {
 	e.ircEngine = ircEngine
 	e.dialer = dialer
 	e.openWriter = writeOpener
 	e.UnsafeMode = unsafe
-	e.Downloads = make(map[string]*Download)
+	e.Downloads = map[string]*Download{}
 	e.downloadsMutex = &sync.Mutex{}
 
 	packets := e.ircEngine.IRCPacketsChann()
@@ -101,13 +113,29 @@ func (e *Engine) RequestFile(botNick string, packageNo int, fileName string) <-c
 		e.ircEngine.SendMessage(botNick, fmt.Sprintf("XDCC SEND %d", packageNo))
 
 		e.downloadsMutex.Lock()
-		e.Downloads[fileName] = &Download{status: Waiting}
+		e.Downloads[fileName] = &Download{Status: Waiting}
 		e.downloadsMutex.Unlock()
 
 		r <- true
 	}()
 
 	return r
+}
+
+// DownloadsJSON writes JSON reporesentation of downloads to givn writer.
+func (e *Engine) DownloadsJSON(writer io.Writer) error {
+	e.downloadsMutex.Lock()
+	defer e.downloadsMutex.Unlock()
+
+	jsonArray := make([]DownloadJSON, 0, len(e.Downloads))
+	for fileName, download := range e.Downloads {
+		jsonArray = append(jsonArray, DownloadJSON{
+			FileName: fileName,
+			Download: download,
+		})
+	}
+
+	return json.NewEncoder(writer).Encode(jsonArray)
 }
 
 func (e *Engine) handleDccSendPacket(packet irc.Packet) {
@@ -123,12 +151,12 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 	if requestExists || e.UnsafeMode {
 		if !requestExists {
 			e.downloadsMutex.Lock()
-			e.Downloads[payload.FileName] = &Download{status: Waiting}
+			e.Downloads[payload.FileName] = &Download{Status: Waiting}
 			request = e.Downloads[payload.FileName]
 			e.downloadsMutex.Unlock()
 		}
 
-		if request.status != Waiting {
+		if request.Status != Waiting {
 			return
 		}
 
@@ -152,9 +180,9 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 
 		e.downloadsMutex.Lock()
 		if copyErr == nil && writerErr == nil && dialError == nil {
-			e.Downloads[payload.FileName].status = Done
+			e.Downloads[payload.FileName].Status = Done
 		} else {
-			e.Downloads[payload.FileName].status = Failed
+			e.Downloads[payload.FileName].Status = Failed
 		}
 		e.downloadsMutex.Unlock()
 	}

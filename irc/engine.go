@@ -68,7 +68,6 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	go func() {
 		for ircScanner.Scan() {
 			ircLine := ircScanner.Text()
-			fmt.Println(ircLine)
 
 			go func(line string) {
 				packet := Parse(line)
@@ -267,7 +266,7 @@ func (e *Engine) SendMessage(nick string, body string) {
 }
 
 func (e *Engine) send(data string) {
-	e.ircStream.Write([]byte(fmt.Sprintf("%s\r\n", data)))
+	fmt.Fprintf(e.ircStream, "%s\r\n", data)
 }
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")

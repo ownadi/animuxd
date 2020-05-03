@@ -2,9 +2,12 @@ package xdcc
 
 import (
 	"animuxd/irc"
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,7 +148,7 @@ func TestRequestFile(t *testing.T) {
 	assert.Contains(t, ircEngine.SentMessages[0], "XDCC SEND 42")
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Waiting, download.status)
+	assert.Equal(t, Waiting, download.Status)
 }
 
 func TestHandleDccSend(t *testing.T) {
@@ -170,7 +173,7 @@ func TestHandleDccSend(t *testing.T) {
 
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Done, download.status)
+	assert.Equal(t, Done, download.Status)
 	assert.Equal(t, 100, fakes.fw.BytesWritten)
 	assert.True(t, fakes.fw.Closed)
 	assert.True(t, fakes.fw.Flushed)
@@ -217,7 +220,7 @@ func TestHandleDccSendDoesnExistUnsafe(t *testing.T) {
 
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Done, download.status)
+	assert.Equal(t, Done, download.Status)
 }
 
 func TestHandleDccSendDialErr(t *testing.T) {
@@ -245,7 +248,7 @@ func TestHandleDccSendDialErr(t *testing.T) {
 
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Failed, download.status)
+	assert.Equal(t, Failed, download.Status)
 }
 
 func TestHandleDccSendOpenWriterErr(t *testing.T) {
@@ -273,7 +276,7 @@ func TestHandleDccSendOpenWriterErr(t *testing.T) {
 
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Failed, download.status)
+	assert.Equal(t, Failed, download.Status)
 }
 
 func TestHandleDccSendCopyErr(t *testing.T) {
@@ -292,7 +295,7 @@ func TestHandleDccSendCopyErr(t *testing.T) {
 
 	payload := irc.PrivMsgDccSendPayload{
 		FileName:   "foo.bar",
-		FileLength: 11, // The fake returns err on 101th byte
+		FileLength: 50,
 		IP:         net.ParseIP("127.0.0.1"),
 		Port:       1337,
 	}
@@ -301,5 +304,24 @@ func TestHandleDccSendCopyErr(t *testing.T) {
 
 	download, downloadExists := engine.Downloads["foo.bar"]
 	assert.True(t, downloadExists)
-	assert.Equal(t, Failed, download.status)
+	assert.Equal(t, Failed, download.Status)
+}
+
+func TestDownloadsJSON(t *testing.T) {
+	ircEngine := &fakeIrcEngine{}
+
+	dial, prepareWriter, _ := PrepareFakes()
+	engine := &Engine{}
+	engine.Start(ircEngine, dial, prepareWriter, false)
+
+	requestPromise := engine.RequestFile("b0t", 42, "foo.bar")
+	<-requestPromise
+
+	buff := new(bytes.Buffer)
+	err := engine.DownloadsJSON(buff)
+	json := buff.String()
+
+	assert.Nil(t, err)
+	assert.True(t, strings.Contains(json, `"FileName":"foo.bar"`))
+	assert.True(t, strings.Contains(json, fmt.Sprintf(`"Status":%d`, Waiting)))
 }
