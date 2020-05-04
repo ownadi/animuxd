@@ -1,9 +1,0 @@
-language: go
-
-os:
-  - windows
-  - linux
-  - osx
-
-go:
-  - 1.14
