@@ -31,6 +31,7 @@ func NewRouter(engine xdcc.XDCCEngine) http.Handler {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		requestPromise := engine.RequestFile(payload.BotNick, payload.PackageNumber, payload.FileName)
 		<-requestPromise
 
@@ -41,6 +42,8 @@ func NewRouter(engine xdcc.XDCCEngine) http.Handler {
 		err := engine.DownloadsJSON(w)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+		} else {
+			w.Header().Set("Content-Type", "application/json")
 		}
 	}
 
