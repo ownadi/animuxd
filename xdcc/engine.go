@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const timeoutMsec = 2000
@@ -19,7 +21,7 @@ const (
 	Failed
 )
 
-// Dialer is a function that connects somewhere and retturns IO.
+// Dialer is a function that connects somewhere and returns IO.
 type Dialer func(string, string) (io.ReadCloser, error)
 
 // WriteOpener is a function that prepares and returns IO
@@ -28,7 +30,11 @@ type WriteOpener func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Wri
 
 // Download describes current status and other metadata.
 type Download struct {
-	Status DownloadStatus
+	Status       DownloadStatus
+	CurrentSpeed uint64
+	AvgSpeed     uint64
+	Downloaded   uint64
+	Size         int64
 }
 
 // DownloadJSON extends Download with some JSON-useful fields.
@@ -122,7 +128,7 @@ func (e *Engine) RequestFile(botNick string, packageNo int, fileName string) <-c
 	return r
 }
 
-// DownloadsJSON writes JSON reporesentation of downloads to givn writer.
+// DownloadsJSON writes JSON representation of downloads to given writer.
 func (e *Engine) DownloadsJSON(writer io.Writer) error {
 	e.downloadsMutex.Lock()
 	defer e.downloadsMutex.Unlock()
@@ -173,9 +179,15 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 		var copyErr error
 		if writerErr == nil && dialError == nil {
 			e.downloadsMutex.Lock()
+			e.Downloads[payload.FileName].Size = payload.FileLength
 			e.Downloads[payload.FileName].Status = Downloading
 			e.downloadsMutex.Unlock()
-			_, copyErr = io.CopyN(writer, downloadConn, payload.FileLength)
+
+			wc := &WriteCounter{}
+			downloadReader := io.TeeReader(downloadConn, wc)
+			done := e.spawnSpeedOMeter(wc, payload)
+			_, copyErr = io.CopyN(writer, downloadReader, payload.FileLength)
+			done <- true
 			if flusher, isFlusher := writer.(interface{ Flush() error }); isFlusher {
 				flusher.Flush()
 			}
@@ -189,4 +201,60 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 		}
 		e.downloadsMutex.Unlock()
 	}
+}
+
+func (e *Engine) spawnSpeedOMeter(wc *WriteCounter, payload irc.PrivMsgDccSendPayload) chan<- bool {
+	done := make(chan bool)
+
+	startTime := time.Now()
+	lastTime := time.Now()
+
+	lastDownloadedBytes := float64(0)
+
+	go func() {
+		defer close(done)
+
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		lastIteration := false
+		for {
+			select {
+			case <-done:
+				lastIteration = true
+			case <-ticker.C:
+				lastIteration = false
+			}
+
+			downloadedBytes := atomic.LoadUint64(&wc.Total)
+
+			currentTime := time.Now()
+			passedTime := currentTime.UnixNano() - lastTime.UnixNano()
+			passedAllTime := currentTime.UnixNano() - startTime.UnixNano()
+			passedSeconds := float64(passedTime) / float64(time.Second)
+			passedAllSeconds := float64(passedAllTime) / float64(time.Second)
+
+			currentSpeed := (float64(downloadedBytes) - lastDownloadedBytes) / passedSeconds
+			avgSpeed := float64(downloadedBytes) / passedAllSeconds
+
+			lastTime = currentTime
+			lastDownloadedBytes = float64(downloadedBytes)
+
+			e.downloadsMutex.Lock()
+			if lastIteration {
+				e.Downloads[payload.FileName].CurrentSpeed = 0
+			} else {
+				e.Downloads[payload.FileName].CurrentSpeed = uint64(currentSpeed)
+			}
+			e.Downloads[payload.FileName].AvgSpeed = uint64(avgSpeed)
+			e.Downloads[payload.FileName].Downloaded = downloadedBytes
+			e.downloadsMutex.Unlock()
+
+			if lastIteration {
+				return
+			}
+		}
+	}()
+
+	return done
 }

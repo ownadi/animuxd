@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
+	"regexp"
 	"testing"
 	"time"
 
@@ -309,6 +309,7 @@ func TestHandleDccSendCopyErr(t *testing.T) {
 
 func TestDownloadsJSON(t *testing.T) {
 	ircEngine := &fakeIrcEngine{}
+	packetsChann := ircEngine.IRCPacketsChann()
 
 	dial, prepareWriter, _ := PrepareFakes()
 	engine := &Engine{}
@@ -317,11 +318,24 @@ func TestDownloadsJSON(t *testing.T) {
 	requestPromise := engine.RequestFile("b0t", 42, "foo.bar")
 	<-requestPromise
 
+	payload := irc.PrivMsgDccSendPayload{
+		FileName:   "foo.bar",
+		FileLength: 50,
+		IP:         net.ParseIP("127.0.0.1"),
+		Port:       1337,
+	}
+	packetsChann <- irc.Packet{Type: irc.PrivMsgDccSend, Payload: payload}
+	time.Sleep(50 * time.Millisecond)
+
 	buff := new(bytes.Buffer)
 	err := engine.DownloadsJSON(buff)
 	json := buff.String()
 
 	assert.Nil(t, err)
-	assert.True(t, strings.Contains(json, `"FileName":"foo.bar"`))
-	assert.True(t, strings.Contains(json, fmt.Sprintf(`"Status":%d`, Waiting)))
+	assert.Regexp(t, regexp.MustCompile(`"FileName":"foo.bar"`), json)
+	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(`"Status":%d`, Done)), json)
+	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(`"Size":%d`, 50)), json)
+	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(`"Downloaded":%d`, 50)), json)
+	assert.Regexp(t, regexp.MustCompile(`"CurrentSpeed":0`), json)
+	assert.Regexp(t, regexp.MustCompile(`"AvgSpeed":[1-9]([0-9]*)?`), json)
 }
