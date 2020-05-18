@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/rs/cors"
 )
 
 type requestFilePayload struct {
@@ -14,6 +15,7 @@ type requestFilePayload struct {
 	FileName      string
 }
 
+// NewRouter setups a http router for given instance of XDCCEngine.
 func NewRouter(engine xdcc.XDCCEngine) http.Handler {
 	router := httprouter.New()
 
@@ -50,5 +52,6 @@ func NewRouter(engine xdcc.XDCCEngine) http.Handler {
 	router.POST("/downloads", createDownload)
 	router.GET("/downloads", indexDownloads)
 
-	return router
+	handler := cors.Default().Handler(router)
+	return handler
 }
