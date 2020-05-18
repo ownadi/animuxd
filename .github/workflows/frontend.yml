@@ -1,0 +1,20 @@
+on:
+  push:
+    paths:
+      - web/**
+      - '.github/workflows/frontend.yml'
+name: Test frontend
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install node
+      uses: actions/setup-node@v1
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Install deps
+      run: yarn
+    - name: Test
+      run: yarn test
+      env:
+        CI: true

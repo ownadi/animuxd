@@ -1,4 +1,8 @@
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - web/**
+      - '.github/workflows/frontend.yml'
 name: Test backend
 jobs:
   test:

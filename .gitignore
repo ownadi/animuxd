@@ -1,0 +1,15 @@
+animuxd
+*.mkv
+
+web/node_modules
+web/build
+web/coverage
+
+web/.env.local
+web/.env.development.local
+web/.env.test.local
+web/.env.production.local
+
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
