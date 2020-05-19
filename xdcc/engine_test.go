@@ -108,16 +108,16 @@ type FakeIOs struct {
 func PrepareFakes() (Dialer, WriteOpener, *FakeIOs) {
 	holder := &FakeIOs{}
 
-	dialer := func(network string, address string) (io.ReadCloser, error) {
+	dialer := func(e *Engine, payload irc.PrivMsgDccSendPayload) (io.ReadCloser, error) {
 		holder.frc = &FakeReadCloser{}
 
 		return holder.frc, nil
 	}
 
-	prepareFakeWriter := func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.WriteCloser, error) {
+	prepareFakeWriter := func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Writer, io.Closer, error) {
 		holder.fw = &FakeWriter{}
 
-		return holder.fw, nil
+		return holder.fw, holder.fw, nil
 	}
 
 	return dialer, prepareFakeWriter, holder
@@ -229,7 +229,7 @@ func TestHandleDccSendDialErr(t *testing.T) {
 
 	engine := &Engine{}
 	_, prepareWriter, _ := PrepareFakes()
-	dial := func(string, string) (io.ReadCloser, error) {
+	dial := func(*Engine, irc.PrivMsgDccSendPayload) (io.ReadCloser, error) {
 		return nil, errors.New("")
 	}
 	engine.Start(ircEngine, dial, prepareWriter, false)
@@ -257,8 +257,8 @@ func TestHandleDccSendOpenWriterErr(t *testing.T) {
 
 	engine := &Engine{}
 	dial, _, _ := PrepareFakes()
-	prepareWriter := func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.WriteCloser, error) {
-		return nil, errors.New("")
+	prepareWriter := func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Writer, io.Closer, error) {
+		return nil, nil, errors.New("")
 	}
 	engine.Start(ircEngine, dial, prepareWriter, false)
 
@@ -284,7 +284,7 @@ func TestHandleDccSendCopyErr(t *testing.T) {
 	packetsChann := ircEngine.IRCPacketsChann()
 
 	_, prepareWriter, _ := PrepareFakes()
-	dial := func(string, string) (io.ReadCloser, error) {
+	dial := func(*Engine, irc.PrivMsgDccSendPayload) (io.ReadCloser, error) {
 		return &ErrReader{}, nil
 	}
 	engine := &Engine{}

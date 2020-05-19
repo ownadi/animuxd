@@ -22,11 +22,11 @@ const (
 )
 
 // Dialer is a function that connects somewhere and returns IO.
-type Dialer func(string, string) (io.ReadCloser, error)
+type Dialer func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.ReadCloser, error)
 
 // WriteOpener is a function that prepares and returns IO
 // that requested files will be written to.
-type WriteOpener func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.WriteCloser, error)
+type WriteOpener func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Writer, io.Closer, error)
 
 // Download describes current status and other metadata.
 type Download struct {
@@ -166,14 +166,14 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 			return
 		}
 
-		downloadConn, dialError := e.dialer("tcp", fmt.Sprintf("%s:%d", payload.IP, payload.Port))
+		downloadConn, dialError := e.dialer(e, payload)
 		if dialError == nil {
 			defer downloadConn.Close()
 		}
 
-		writer, writerErr := e.openWriter(e, payload)
+		writer, closer, writerErr := e.openWriter(e, payload)
 		if writerErr == nil {
-			defer writer.Close()
+			defer closer.Close()
 		}
 
 		var copyErr error
