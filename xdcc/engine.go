@@ -51,7 +51,7 @@ type Engine struct {
 	openWriter     WriteOpener
 	UnsafeMode     bool
 	Downloads      map[string]*Download
-	downloadsMutex *sync.Mutex
+	downloadsMutex *sync.RWMutex
 }
 
 type XDCCEngine interface {
@@ -66,7 +66,7 @@ func (e *Engine) Start(ircEngine irc.IRCEngine, dialer Dialer, writeOpener Write
 	e.openWriter = writeOpener
 	e.UnsafeMode = unsafe
 	e.Downloads = map[string]*Download{}
-	e.downloadsMutex = &sync.Mutex{}
+	e.downloadsMutex = &sync.RWMutex{}
 
 	packets := e.ircEngine.IRCPacketsChann()
 
@@ -130,8 +130,8 @@ func (e *Engine) RequestFile(botNick string, packageNo int, fileName string) <-c
 
 // DownloadsJSON writes JSON representation of downloads to given writer.
 func (e *Engine) DownloadsJSON(writer io.Writer) error {
-	e.downloadsMutex.Lock()
-	defer e.downloadsMutex.Unlock()
+	e.downloadsMutex.RLock()
+	defer e.downloadsMutex.RUnlock()
 
 	jsonArray := make([]DownloadJSON, 0, len(e.Downloads))
 	for fileName, download := range e.Downloads {
@@ -150,9 +150,9 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 		return
 	}
 
-	e.downloadsMutex.Lock()
+	e.downloadsMutex.RLock()
 	request, requestExists := e.Downloads[payload.FileName]
-	e.downloadsMutex.Unlock()
+	e.downloadsMutex.RUnlock()
 
 	if requestExists || e.UnsafeMode {
 		if !requestExists {

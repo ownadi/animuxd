@@ -32,10 +32,10 @@ type Engine struct {
 	onErrNicknameInUse      map[string]onPacketCallback
 	onRplEndOfNames         map[string]onPacketCallback
 	onRplWhoisChannels      map[string]onPacketCallback
-	onRplWelcomeMutex       *sync.Mutex
-	onErrNicknameInUseMutex *sync.Mutex
-	onRplEndOfNamesMutex    *sync.Mutex
-	onRplWhoisChannelsMutex *sync.Mutex
+	onRplWelcomeMutex       *sync.RWMutex
+	onErrNicknameInUseMutex *sync.RWMutex
+	onRplEndOfNamesMutex    *sync.RWMutex
+	onRplWhoisChannelsMutex *sync.RWMutex
 }
 
 // Nick returns current registered nick.
@@ -56,10 +56,10 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	e.onRplWelcome = map[string]onPacketCallback{}
 	e.onRplEndOfNames = map[string]onPacketCallback{}
 	e.onRplWhoisChannels = map[string]onPacketCallback{}
-	e.onErrNicknameInUseMutex = &sync.Mutex{}
-	e.onRplWelcomeMutex = &sync.Mutex{}
-	e.onRplEndOfNamesMutex = &sync.Mutex{}
-	e.onRplWhoisChannelsMutex = &sync.Mutex{}
+	e.onErrNicknameInUseMutex = &sync.RWMutex{}
+	e.onRplWelcomeMutex = &sync.RWMutex{}
+	e.onRplEndOfNamesMutex = &sync.RWMutex{}
+	e.onRplWhoisChannelsMutex = &sync.RWMutex{}
 
 	ircScanner := bufio.NewScanner(e.ircStream)
 	r := make(chan Packet, runtime.NumCPU())
@@ -73,35 +73,35 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 				packet := Parse(line)
 
 				if packet.Type == RplWelcome {
-					e.onRplWelcomeMutex.Lock()
+					e.onRplWelcomeMutex.RLock()
 					for _, callback := range e.onRplWelcome {
 						callback(packet)
 					}
-					e.onRplWelcomeMutex.Unlock()
+					e.onRplWelcomeMutex.RUnlock()
 				}
 
 				if packet.Type == ErrNicknameInUse {
-					e.onErrNicknameInUseMutex.Lock()
+					e.onErrNicknameInUseMutex.RLock()
 					for _, callback := range e.onErrNicknameInUse {
 						callback(packet)
 					}
-					e.onErrNicknameInUseMutex.Unlock()
+					e.onErrNicknameInUseMutex.RUnlock()
 				}
 
 				if packet.Type == RplEndOfNames {
-					e.onRplEndOfNamesMutex.Lock()
+					e.onRplEndOfNamesMutex.RLock()
 					for _, callback := range e.onRplEndOfNames {
 						callback(packet)
 					}
-					e.onRplEndOfNamesMutex.Unlock()
+					e.onRplEndOfNamesMutex.RUnlock()
 				}
 
 				if packet.Type == RplWhoisChannels {
-					e.onRplWhoisChannelsMutex.Lock()
+					e.onRplWhoisChannelsMutex.RLock()
 					for _, callback := range e.onRplWhoisChannels {
 						callback(packet)
 					}
-					e.onRplWhoisChannelsMutex.Unlock()
+					e.onRplWhoisChannelsMutex.RUnlock()
 				}
 
 				if packet.Type == Ping {
