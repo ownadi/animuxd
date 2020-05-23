@@ -2,6 +2,7 @@ package irc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -36,6 +37,8 @@ type Engine struct {
 	onErrNicknameInUseMutex *sync.RWMutex
 	onRplEndOfNamesMutex    *sync.RWMutex
 	onRplWhoisChannelsMutex *sync.RWMutex
+	ctx                     context.Context
+	cancelFunc              context.CancelFunc
 }
 
 // Nick returns current registered nick.
@@ -60,12 +63,21 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 	e.onRplWelcomeMutex = &sync.RWMutex{}
 	e.onRplEndOfNamesMutex = &sync.RWMutex{}
 	e.onRplWhoisChannelsMutex = &sync.RWMutex{}
+	e.ctx, e.cancelFunc = context.WithCancel(context.Background())
 
 	ircScanner := bufio.NewScanner(e.ircStream)
 	r := make(chan Packet, runtime.NumCPU())
 	e.ircPacketsChan = r
 
 	go func() {
+		<-e.ctx.Done()
+		e.ircStream.Close()
+		close(e.ircPacketsChan)
+	}()
+
+	go func() {
+		defer e.cancelFunc()
+
 		for ircScanner.Scan() {
 			ircLine := ircScanner.Text()
 
@@ -108,23 +120,37 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 					e.send(fmt.Sprintf("PONG :%s", packet.Payload))
 				}
 
-				r <- packet
+				if e.ctx.Err() == nil {
+					r <- packet
+				}
 			}(ircLine)
 		}
 	}()
 }
 
-// Register tries to register IRC nick.
+// Stop terminates all activities and closes both all channels and IOs of the engine.
+func (e *Engine) Stop() {
+	e.cancelFunc()
+}
+
+// Context returns a context.Contex which gets canceled when engine stops.
+func (e *Engine) Context() context.Context {
+	return e.ctx
+}
+
+// Register tries to register IRC nick until either it successes or gets cancelled.
 // In most cases should be called right after Start.
-// On success sends true on the returned channel.
-func (e *Engine) Register(timeout int64) <-chan bool {
+// Sends result on the returned channel.
+func (e *Engine) Register(tryTimeout int64) <-chan bool {
 	r := make(chan bool)
 
 	go func() {
 		defer close(r)
 
 		registrationSuccess := false
-		for !registrationSuccess {
+		registrationFail := false
+
+		for !registrationSuccess && !registrationFail {
 			successChann := make(chan bool)
 			defer close(successChann)
 
@@ -154,8 +180,10 @@ func (e *Engine) Register(timeout int64) <-chan bool {
 			e.send(fmt.Sprintf("NICK %s", currentNick))
 
 			select {
-			case <-time.After(time.Duration(timeout) * time.Millisecond):
+			case <-time.After(time.Duration(tryTimeout) * time.Millisecond):
 				registrationSuccess = false
+			case <-e.ctx.Done():
+				registrationFail = true
 			case success := <-successChann:
 				registrationSuccess = success
 			}
@@ -168,14 +196,15 @@ func (e *Engine) Register(timeout int64) <-chan bool {
 			e.onErrNicknameInUseMutex.Unlock()
 		}
 
-		r <- true
+		r <- registrationSuccess
 	}()
 
 	return r
 }
 
 // Join tries to join IRC channel.
-// On success sends true on the returned channel.
+// Sends result on the returned channel.
+// Considers result as a success even when gets timeouted.
 func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 	r := make(chan bool)
 
@@ -203,6 +232,8 @@ func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 		e.send(fmt.Sprintf("JOIN %s", channelWithHash))
 
 		select {
+		case <-e.ctx.Done():
+			r <- false
 		case <-time.After(time.Duration(timeout) * time.Millisecond):
 			r <- true
 		case <-callbackSuccessChann:
@@ -246,6 +277,8 @@ func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
 		e.send(fmt.Sprintf("WHOIS %s", nick))
 
 		select {
+		case <-e.ctx.Done():
+			r <- make([]string, 0)
 		case <-time.After(time.Duration(timeout) * time.Millisecond):
 			r <- make([]string, 0)
 		case channels := <-callbackChann:
@@ -266,7 +299,11 @@ func (e *Engine) SendMessage(nick string, body string) {
 }
 
 func (e *Engine) send(data string) {
-	fmt.Fprintf(e.ircStream, "%s\r\n", data)
+	_, err := fmt.Fprintf(e.ircStream, "%s\r\n", data)
+
+	if err != nil {
+		e.cancelFunc()
+	}
 }
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")

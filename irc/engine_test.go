@@ -114,6 +114,17 @@ func TestReqisterTimeouts(t *testing.T) {
 	assert.Equal(t, secondNick, engine.Nick())
 }
 
+func TestRegisterGetsCanceled(t *testing.T) {
+	_, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+	registerPromise := engine.Register(100)
+	engine.Stop()
+
+	assert.False(t, <-registerPromise)
+}
+
 func TestPongs(t *testing.T) {
 	client, server := net.Pipe()
 	scanner := bufio.NewScanner(client)
@@ -160,6 +171,19 @@ func TestJoinTimeouts(t *testing.T) {
 	assert.True(t, <-promise)
 }
 
+func TestJoinGetsCancelled(t *testing.T) {
+	_, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+
+	promise := engine.Join("foo", 50)
+
+	engine.Stop()
+
+	assert.False(t, <-promise)
+}
+
 func TestChannelsOfUser(t *testing.T) {
 	client, server := net.Pipe()
 	scanner := bufio.NewScanner(client)
@@ -191,6 +215,19 @@ func TestChannelsOfUserTimeouts(t *testing.T) {
 	assert.Equal(t, []string{}, <-promise)
 }
 
+func TestChannelsOfUserGetsCanceled(t *testing.T) {
+	_, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+
+	promise := engine.ChannelsOfUser("JohnDoe", 999999)
+
+	engine.Stop()
+
+	assert.Equal(t, []string{}, <-promise)
+}
+
 func TestIRCPacketsChann(t *testing.T) {
 	client, server := net.Pipe()
 
@@ -217,4 +254,27 @@ func TestSendMessage(t *testing.T) {
 
 	scanner.Scan()
 	assert.Equal(t, "PRIVMSG foo :bar", scanner.Text())
+}
+
+func TestContextAndStop(t *testing.T) {
+	_, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+
+	ctx := engine.Context()
+
+	engine.Stop()
+	<-ctx.Done()
+}
+
+func TestEngineGetsCancelledOnConnectionClose(t *testing.T) {
+	client, server := net.Pipe()
+
+	engine := &Engine{}
+	engine.Start(server)
+	ctx := engine.Context()
+	client.Close()
+
+	<-ctx.Done()
 }
