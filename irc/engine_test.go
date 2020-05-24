@@ -2,6 +2,7 @@ package irc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"regexp"
@@ -26,7 +27,7 @@ func TestReqister(t *testing.T) {
 
 	engine := &Engine{}
 	engine.Start(server)
-	registerPromise := engine.Register(999999)
+	registerPromise := engine.Register(engine.Context(), 999999)
 
 	userRequest, _ := reader.ReadString('\r')
 	userRequestParts := userPattern.FindAllStringSubmatch(userRequest, -1)[0]
@@ -47,7 +48,7 @@ func TestReqisterNickInUse(t *testing.T) {
 
 	engine := &Engine{}
 	engine.Start(server)
-	registerPromise := engine.Register(999999)
+	registerPromise := engine.Register(engine.Context(), 999999)
 
 	userRequest, _ := reader.ReadString('\r')
 	userRequestParts := userPattern.FindAllStringSubmatch(userRequest, -1)[0]
@@ -84,7 +85,7 @@ func TestReqisterTimeouts(t *testing.T) {
 
 	engine := &Engine{}
 	engine.Start(server)
-	registerPromise := engine.Register(50)
+	registerPromise := engine.Register(engine.Context(), 50)
 
 	userRequest, _ := reader.ReadString('\r')
 	userRequestParts := userPattern.FindAllStringSubmatch(userRequest, -1)[0]
@@ -115,12 +116,21 @@ func TestReqisterTimeouts(t *testing.T) {
 }
 
 func TestRegisterGetsCanceled(t *testing.T) {
-	_, server := net.Pipe()
+	client, server := net.Pipe()
+	reader := bufio.NewReader(client)
 
 	engine := &Engine{}
 	engine.Start(server)
-	registerPromise := engine.Register(100)
-	engine.Stop()
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	registerPromise := engine.Register(ctx, 100)
+	cancelFunc()
+
+	go func() {
+		for {
+			reader.ReadString('\r')
+		}
+	}()
 
 	assert.False(t, <-registerPromise)
 }
@@ -146,7 +156,7 @@ func TestJoin(t *testing.T) {
 	engine := &Engine{}
 	engine.Start(server)
 
-	promise := engine.Join("foo", 999999)
+	promise := engine.Join(engine.Context(), "foo")
 
 	scanner.Scan()
 	assert.Equal(t, "JOIN #foo", scanner.Text())
@@ -156,30 +166,20 @@ func TestJoin(t *testing.T) {
 	assert.True(t, <-promise)
 }
 
-func TestJoinTimeouts(t *testing.T) {
-	client, server := net.Pipe()
-	scanner := bufio.NewScanner(client)
-
-	engine := &Engine{}
-	engine.Start(server)
-
-	promise := engine.Join("foo", 50)
-
-	scanner.Scan()
-	assert.Equal(t, "JOIN #foo", scanner.Text())
-
-	assert.True(t, <-promise)
-}
-
 func TestJoinGetsCancelled(t *testing.T) {
-	_, server := net.Pipe()
+	client, server := net.Pipe()
+	reader := bufio.NewReader(client)
 
 	engine := &Engine{}
 	engine.Start(server)
 
-	promise := engine.Join("foo", 50)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	promise := engine.Join(ctx, "foo")
+	cancelFunc()
 
-	engine.Stop()
+	go func() {
+		reader.ReadString('\r')
+	}()
 
 	assert.False(t, <-promise)
 }
@@ -191,7 +191,7 @@ func TestChannelsOfUser(t *testing.T) {
 	engine := &Engine{}
 	engine.Start(server)
 
-	promise := engine.ChannelsOfUser("JohnDoe", 999999)
+	promise := engine.ChannelsOfUser(context.Background(), "JohnDoe")
 
 	scanner.Scan()
 	assert.Equal(t, "WHOIS JohnDoe", scanner.Text())
@@ -201,29 +201,20 @@ func TestChannelsOfUser(t *testing.T) {
 	assert.Equal(t, []string{"HorribleSubs", "NIBL", "news"}, <-promise)
 }
 
-func TestChannelsOfUserTimeouts(t *testing.T) {
-	client, server := net.Pipe()
-	scanner := bufio.NewScanner(client)
-
-	engine := &Engine{}
-	engine.Start(server)
-
-	promise := engine.ChannelsOfUser("JohnDoe", 50)
-
-	scanner.Scan()
-	assert.Equal(t, "WHOIS JohnDoe", scanner.Text())
-	assert.Equal(t, []string{}, <-promise)
-}
-
 func TestChannelsOfUserGetsCanceled(t *testing.T) {
-	_, server := net.Pipe()
+	client, server := net.Pipe()
+	reader := bufio.NewReader(client)
 
 	engine := &Engine{}
 	engine.Start(server)
 
-	promise := engine.ChannelsOfUser("JohnDoe", 999999)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	promise := engine.ChannelsOfUser(ctx, "JohnDoe")
+	cancelFunc()
 
-	engine.Stop()
+	go func() {
+		reader.ReadString('\n')
+	}()
 
 	assert.Equal(t, []string{}, <-promise)
 }

@@ -3,6 +3,7 @@ package xdcc
 import (
 	"animuxd/irc"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ type fakeIrcEngine struct {
 	Channels     []string
 	SentMessages []string
 	PacketsChan  chan irc.Packet
+	ctx          context.Context
 }
 
 func (e *fakeIrcEngine) IRCPacketsChann() chan irc.Packet {
@@ -28,7 +30,7 @@ func (e *fakeIrcEngine) IRCPacketsChann() chan irc.Packet {
 	return e.PacketsChan
 }
 
-func (e *fakeIrcEngine) Join(channelName string, timeout int64) <-chan bool {
+func (e *fakeIrcEngine) Join(ctx context.Context, channelName string) <-chan bool {
 	r := make(chan bool)
 
 	go func() {
@@ -40,7 +42,7 @@ func (e *fakeIrcEngine) Join(channelName string, timeout int64) <-chan bool {
 	return r
 }
 
-func (e *fakeIrcEngine) ChannelsOfUser(nick string, timeout int64) chan []string {
+func (e *fakeIrcEngine) ChannelsOfUser(ctx context.Context, nick string) chan []string {
 	r := make(chan []string)
 
 	go func() {
@@ -53,6 +55,14 @@ func (e *fakeIrcEngine) ChannelsOfUser(nick string, timeout int64) chan []string
 
 func (e *fakeIrcEngine) SendMessage(nick string, body string) {
 	e.SentMessages = append(e.SentMessages, body)
+}
+
+func (e *fakeIrcEngine) Context() context.Context {
+	if e.ctx == nil {
+		e.ctx = context.Background()
+	}
+
+	return e.ctx
 }
 
 type FakeReadCloser struct {
@@ -338,4 +348,15 @@ func TestDownloadsJSON(t *testing.T) {
 	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf(`"Downloaded":%d`, 50)), json)
 	assert.Regexp(t, regexp.MustCompile(`"CurrentSpeed":0`), json)
 	assert.Regexp(t, regexp.MustCompile(`"AvgSpeed":[1-9]([0-9]*)?`), json)
+}
+
+func TestContextAndStop(t *testing.T) {
+	ircEngine := &fakeIrcEngine{}
+	dial, prepareWriter, _ := PrepareFakes()
+	engine := &Engine{}
+	engine.Start(ircEngine, dial, prepareWriter, false)
+	ctx := engine.Context()
+	engine.Stop()
+
+	<-ctx.Done()
 }

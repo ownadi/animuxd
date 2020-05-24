@@ -18,9 +18,10 @@ type onPacketCallback func(Packet)
 
 type IRCEngine interface {
 	IRCPacketsChann() chan Packet
-	Join(channelName string, timeout int64) <-chan bool
-	ChannelsOfUser(nick string, timeout int64) chan []string
+	Join(ctx context.Context, channelName string) <-chan bool
+	ChannelsOfUser(ctx context.Context, nick string) chan []string
 	SendMessage(nick string, body string)
+	Context() context.Context
 }
 
 // An Engine represents that part of the app which is responsible
@@ -141,8 +142,8 @@ func (e *Engine) Context() context.Context {
 // Register tries to register IRC nick until either it successes or gets cancelled.
 // In most cases should be called right after Start.
 // Sends result on the returned channel.
-func (e *Engine) Register(tryTimeout int64) <-chan bool {
-	r := make(chan bool)
+func (e *Engine) Register(ctx context.Context, tryTimeout int64) <-chan bool {
+	r := make(chan bool, 1)
 
 	go func() {
 		defer close(r)
@@ -151,7 +152,7 @@ func (e *Engine) Register(tryTimeout int64) <-chan bool {
 		registrationFail := false
 
 		for !registrationSuccess && !registrationFail {
-			successChann := make(chan bool)
+			successChann := make(chan bool, 1)
 			defer close(successChann)
 
 			currentNick := randNick()
@@ -182,7 +183,7 @@ func (e *Engine) Register(tryTimeout int64) <-chan bool {
 			select {
 			case <-time.After(time.Duration(tryTimeout) * time.Millisecond):
 				registrationSuccess = false
-			case <-e.ctx.Done():
+			case <-ctx.Done():
 				registrationFail = true
 			case success := <-successChann:
 				registrationSuccess = success
@@ -205,8 +206,8 @@ func (e *Engine) Register(tryTimeout int64) <-chan bool {
 // Join tries to join IRC channel.
 // Sends result on the returned channel.
 // Considers result as a success even when gets timeouted.
-func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
-	r := make(chan bool)
+func (e *Engine) Join(ctx context.Context, channelName string) <-chan bool {
+	r := make(chan bool, 1)
 
 	go func() {
 		defer close(r)
@@ -232,10 +233,8 @@ func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 		e.send(fmt.Sprintf("JOIN %s", channelWithHash))
 
 		select {
-		case <-e.ctx.Done():
+		case <-ctx.Done():
 			r <- false
-		case <-time.After(time.Duration(timeout) * time.Millisecond):
-			r <- true
 		case <-callbackSuccessChann:
 			r <- true
 		}
@@ -250,8 +249,8 @@ func (e *Engine) Join(channelName string, timeout int64) <-chan bool {
 
 // ChannelsOfUser tries to obtain channels of user under given nick.
 // Sends the result on the returned channel.
-func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
-	r := make(chan []string)
+func (e *Engine) ChannelsOfUser(ctx context.Context, nick string) chan []string {
+	r := make(chan []string, 1)
 
 	go func() {
 		defer close(r)
@@ -277,9 +276,7 @@ func (e *Engine) ChannelsOfUser(nick string, timeout int64) chan []string {
 		e.send(fmt.Sprintf("WHOIS %s", nick))
 
 		select {
-		case <-e.ctx.Done():
-			r <- make([]string, 0)
-		case <-time.After(time.Duration(timeout) * time.Millisecond):
+		case <-ctx.Done():
 			r <- make([]string, 0)
 		case channels := <-callbackChann:
 			r <- channels

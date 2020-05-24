@@ -2,6 +2,7 @@ package xdcc
 
 import (
 	"animuxd/irc"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,6 +53,8 @@ type Engine struct {
 	UnsafeMode     bool
 	Downloads      map[string]*Download
 	downloadsMutex *sync.RWMutex
+	ctx            context.Context
+	cancelFunc     context.CancelFunc
 }
 
 type XDCCEngine interface {
@@ -67,40 +70,67 @@ func (e *Engine) Start(ircEngine irc.IRCEngine, dialer Dialer, writeOpener Write
 	e.UnsafeMode = unsafe
 	e.Downloads = map[string]*Download{}
 	e.downloadsMutex = &sync.RWMutex{}
+	e.ctx, e.cancelFunc = context.WithCancel(ircEngine.Context())
 
 	packets := e.ircEngine.IRCPacketsChann()
 
 	go func() {
-		for packet := range packets {
-			if packet.Type == irc.PrivMsgDccSend {
-				go func(dccSendPacket irc.Packet) {
-					e.handleDccSendPacket(dccSendPacket)
-				}(packet)
+		// stop everything in case there are no more packets
+		defer e.cancelFunc()
+
+		for {
+			select {
+			case <-e.ctx.Done():
+				return
+			case packet := <-packets:
+				if packet.Type == irc.PrivMsgDccSend {
+					go func(dccSendPacket irc.Packet) {
+						e.handleDccSendPacket(dccSendPacket)
+					}(packet)
+				}
 			}
 		}
 	}()
 }
 
+func (e *Engine) Stop() {
+	e.cancelFunc()
+}
+
+func (e *Engine) Context() context.Context {
+	return e.ctx
+}
+
 // joinBotChannels joins all channels that bot under given nick
 // is present on. Returns promise channel.
 func (e *Engine) joinBotChannels(botNick string) chan bool {
-	r := make(chan bool)
+	r := make(chan bool, 1)
 
 	go func() {
 		defer close(r)
 
-		channelsPromise := e.ircEngine.ChannelsOfUser(botNick, timeoutMsec)
+		channelsContext, cancelChannelsContext := context.WithTimeout(e.ctx, timeoutMsec*time.Millisecond)
+		channelsPromise := e.ircEngine.ChannelsOfUser(channelsContext, botNick)
 		channels := <-channelsPromise
 
+		if channelsContext.Err() != nil {
+			r <- false
+			cancelChannelsContext()
+			return
+		}
+		cancelChannelsContext()
+
 		joinPromises := make([]<-chan bool, len(channels))
+		joinCtx, cancelJoinCtx := context.WithTimeout(e.ctx, timeoutMsec*time.Millisecond)
 		for idx, channelName := range channels {
-			joinPromises[idx] = e.ircEngine.Join(channelName, timeoutMsec)
+			joinPromises[idx] = e.ircEngine.Join(joinCtx, channelName)
 		}
 		for _, joinPromise := range joinPromises {
 			<-joinPromise
 		}
 
 		r <- true
+		cancelJoinCtx()
 	}()
 
 	return r
@@ -108,7 +138,7 @@ func (e *Engine) joinBotChannels(botNick string) chan bool {
 
 // RequestFile sends and memoizes download request.
 func (e *Engine) RequestFile(botNick string, packageNo int, fileName string) <-chan bool {
-	r := make(chan bool)
+	r := make(chan bool, 1)
 
 	go func() {
 		defer close(r)
@@ -185,12 +215,28 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 
 			wc := &WriteCounter{}
 			downloadReader := io.TeeReader(downloadConn, wc)
-			done := e.spawnSpeedOMeter(wc, payload)
+			endSpeedOMeter := e.spawnSpeedOMeter(wc, payload)
+			done := make(chan bool, 1)
+			defer close(done)
+
+			// Cancel download when context gets canceled
+			go func() {
+				select {
+				case <-e.ctx.Done():
+					closer.Close()
+				case <-done:
+				}
+			}()
+
 			_, copyErr = io.CopyN(writer, downloadReader, payload.FileLength)
-			done <- true
+
+			if e.ctx.Err() == nil {
+				endSpeedOMeter <- true
+			}
 			if flusher, isFlusher := writer.(interface{ Flush() error }); isFlusher {
 				flusher.Flush()
 			}
+			done <- true
 		}
 
 		e.downloadsMutex.Lock()
@@ -204,7 +250,7 @@ func (e *Engine) handleDccSendPacket(packet irc.Packet) {
 }
 
 func (e *Engine) spawnSpeedOMeter(wc *WriteCounter, payload irc.PrivMsgDccSendPayload) chan<- bool {
-	done := make(chan bool)
+	done := make(chan bool, 1)
 
 	startTime := time.Now()
 	lastTime := time.Now()
@@ -220,6 +266,8 @@ func (e *Engine) spawnSpeedOMeter(wc *WriteCounter, payload irc.PrivMsgDccSendPa
 		lastIteration := false
 		for {
 			select {
+			case <-e.ctx.Done():
+				lastIteration = true
 			case <-done:
 				lastIteration = true
 			case <-ticker.C:
