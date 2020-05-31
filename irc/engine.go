@@ -121,7 +121,7 @@ func (e *Engine) Start(ircStream io.ReadWriteCloser) {
 					e.send(fmt.Sprintf("PONG :%s", packet.Payload))
 				}
 
-				if e.ctx.Err() == nil {
+				if e.ctx.Err() == nil && packet.Type != Unknown {
 					r <- packet
 				}
 			}(ircLine)
