@@ -18,6 +18,8 @@ export type Theme = {
     tableRowHover: string;
     scrollTrack: string;
     scrollThumb: string;
+    statusBackground: string;
+    statusText: string;
   };
 };
 

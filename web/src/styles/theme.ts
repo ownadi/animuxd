@@ -25,6 +25,8 @@ const theme: Theme = {
     tableText: textColor,
     scrollTrack: secondaryColor,
     scrollThumb: textColor,
+    statusBackground: accentColor,
+    statusText: textColor,
   },
 };
 

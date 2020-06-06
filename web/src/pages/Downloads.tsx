@@ -1,11 +1,12 @@
 import React, { useMemo } from "react";
 import { useTable, Column, useSortBy } from "react-table";
-import useDownloads from "../hooks/useDownloads";
 import * as Table from "../styles/table";
 import { FaArrowDown, FaArrowUp } from "react-icons/fa";
 import filesize from "filesize";
 import { Download, DownloadStatusString } from "../services/animuxdData";
 import styled from "../styles/styled";
+import { useRecoilValue } from "recoil";
+import { downloads as downloadsAtom } from "../atoms/downloads";
 
 const Container = styled.div`
   display: flex;
@@ -15,7 +16,7 @@ const Container = styled.div`
 `;
 
 const Downloads = () => {
-  const downloads = useDownloads();
+  const downloads = useRecoilValue(downloadsAtom);
 
   const columns = useMemo<Column<Download>[]>(() => {
     return [
@@ -117,4 +118,4 @@ const Downloads = () => {
   );
 };
 
-export default Downloads;
+export default React.memo(Downloads);
