@@ -227,10 +227,10 @@ func TestIRCPacketsChann(t *testing.T) {
 
 	chann := engine.IRCPacketsChann()
 
-	client.Write([]byte("FOOBAR\r\n"))
+	client.Write([]byte(":magnet.rizon.net 433 * %s :Nickname is already in use.\r\n"))
 
 	packet := <-chann
-	assert.Equal(t, Unknown, packet.Type)
+	assert.Equal(t, ErrNicknameInUse, packet.Type)
 }
 
 func TestSendMessage(t *testing.T) {
