@@ -5,8 +5,8 @@ export const search = (query: string): Promise<NiblPackage[]> => {
   url.search = new URLSearchParams({ query }).toString();
 
   return fetch(url.toString())
-    .then((response) => response.json())
-    .then((json) => json.content as NiblPackage[]);
+    .then((response) => response.text())
+    .then((text) => JSON.parse(decodeURIComponent(escape(text))).content as NiblPackage[]);
 };
 
 export const getBots = (): Promise<NiblBot[]> => {
