@@ -7,7 +7,7 @@ import SearchPage from "./pages/Search";
 
 const Container = styled.main`
   flex-grow: 1;
-  height: 100%;
+  height: auto;
   max-width: 100%;
   background-color: ${(props) => props.theme.color.workspaceBackground};
   overflow: hidden;

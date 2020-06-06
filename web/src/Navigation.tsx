@@ -6,7 +6,7 @@ import { useRecoilState } from "recoil";
 import { Page, page as pageAtom } from "./atoms/page";
 
 const Container = styled.nav`
-  height: 100%;
+  height: auto;
   width: 7rem;
   min-width: 7rem;
   background-color: ${(props) => props.theme.color.navigationBackground};
