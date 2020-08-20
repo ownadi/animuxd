@@ -360,3 +360,52 @@ func TestContextAndStop(t *testing.T) {
 
 	<-ctx.Done()
 }
+
+func TestRestartResumesDownloads(t *testing.T) {
+	ircEngine := &fakeIrcEngine{}
+	dial, prepareWriter, _ := PrepareFakes()
+	engine := &Engine{}
+
+	engine.Start(ircEngine, dial, prepareWriter, false)
+
+	engine.Downloads = map[string]*Download{
+		"foo.mkv": &Download{
+			Status:    Waiting,
+			BotNick:   "b0t",
+			PackageNo: 1,
+			Size:      1000,
+		},
+		"bar.mkv": &Download{
+			Status:    Downloading,
+			BotNick:   "b0t",
+			PackageNo: 2,
+			Size:      2000,
+		},
+		"baz.mkv": &Download{
+			Status:    Failed,
+			BotNick:   "b0t",
+			PackageNo: 3,
+			Size:      3000,
+		},
+		"x.mkv": &Download{
+			Status:    Done,
+			BotNick:   "b0t",
+			PackageNo: 4,
+			Size:      4000,
+		},
+	}
+
+	engine.Restart(ircEngine)
+
+	assert.Equal(t, engine.Downloads["foo.mkv"].Status, Waiting)
+	assert.Contains(t, ircEngine.SentMessages, "XDCC SEND 1")
+
+	assert.Equal(t, engine.Downloads["bar.mkv"].Status, Waiting)
+	assert.Contains(t, ircEngine.SentMessages, "XDCC SEND 2")
+
+	assert.Equal(t, engine.Downloads["baz.mkv"].Status, Waiting)
+	assert.Contains(t, ircEngine.SentMessages, "XDCC SEND 3")
+
+	assert.Equal(t, engine.Downloads["x.mkv"].Status, Done)
+	assert.NotContains(t, ircEngine.SentMessages, "XDCC SEND 4")
+}

@@ -27,6 +27,7 @@ type Dialer func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.ReadClos
 
 // WriteOpener is a function that prepares and returns IO
 // that requested files will be written to.
+// Returns both writer and closer for convenient usage of bufio.
 type WriteOpener func(engine *Engine, payload irc.PrivMsgDccSendPayload) (io.Writer, io.Closer, error)
 
 // Download describes current status and other metadata.
@@ -36,6 +37,8 @@ type Download struct {
 	AvgSpeed     uint64
 	Downloaded   uint64
 	Size         int64
+	BotNick      string
+	PackageNo    int
 }
 
 // DownloadJSON extends Download with some JSON-useful fields.
@@ -72,25 +75,7 @@ func (e *Engine) Start(ircEngine irc.IRCEngine, dialer Dialer, writeOpener Write
 	e.downloadsMutex = &sync.RWMutex{}
 	e.ctx, e.cancelFunc = context.WithCancel(ircEngine.Context())
 
-	packets := e.ircEngine.IRCPacketsChann()
-
-	go func() {
-		// stop everything in case there are no more packets
-		defer e.cancelFunc()
-
-		for {
-			select {
-			case <-e.ctx.Done():
-				return
-			case packet := <-packets:
-				if packet.Type == irc.PrivMsgDccSend {
-					go func(dccSendPacket irc.Packet) {
-						e.handleDccSendPacket(dccSendPacket)
-					}(packet)
-				}
-			}
-		}
-	}()
+	go e.handleIrcPackets()
 }
 
 func (e *Engine) Stop() {
@@ -99,6 +84,49 @@ func (e *Engine) Stop() {
 
 func (e *Engine) Context() context.Context {
 	return e.ctx
+}
+
+// Restart starts the Engine on top of a new IRCEngine and resumes uncompleted downloads.
+// TODO: Try to RESUME instead of downloading from zero.
+func (e *Engine) Restart(ircEngine irc.IRCEngine) {
+	e.ircEngine = ircEngine
+	e.ctx, e.cancelFunc = context.WithCancel(ircEngine.Context())
+
+	e.downloadsMutex.Lock()
+	requestPromises := make([]<-chan bool, 0, len(e.Downloads))
+	for fileName, download := range e.Downloads {
+		if download.Status != Done {
+			e.Downloads[fileName].Status = Waiting
+			requestPromise := e.RequestFile(download.BotNick, download.PackageNo, fileName)
+			requestPromises = append(requestPromises, requestPromise)
+		}
+	}
+	e.downloadsMutex.Unlock()
+
+	go e.handleIrcPackets()
+
+	for _, promise := range requestPromises {
+		<-promise
+	}
+}
+
+func (e *Engine) handleIrcPackets() {
+	defer e.cancelFunc()
+
+	packets := e.ircEngine.IRCPacketsChann()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case packet := <-packets:
+			if packet.Type == irc.PrivMsgDccSend {
+				go func(dccSendPacket irc.Packet) {
+					e.handleDccSendPacket(dccSendPacket)
+				}(packet)
+			}
+		}
+	}
 }
 
 // joinBotChannels joins all channels that bot under given nick
@@ -120,10 +148,10 @@ func (e *Engine) joinBotChannels(botNick string) chan bool {
 		}
 		cancelChannelsContext()
 
-		joinPromises := make([]<-chan bool, len(channels))
+		joinPromises := make([]<-chan bool, 0, len(channels))
 		joinCtx, cancelJoinCtx := context.WithTimeout(e.ctx, timeoutMsec*time.Millisecond)
-		for idx, channelName := range channels {
-			joinPromises[idx] = e.ircEngine.Join(joinCtx, channelName)
+		for _, channelName := range channels {
+			joinPromises = append(joinPromises, e.ircEngine.Join(joinCtx, channelName))
 		}
 		for _, joinPromise := range joinPromises {
 			<-joinPromise
@@ -149,7 +177,7 @@ func (e *Engine) RequestFile(botNick string, packageNo int, fileName string) <-c
 		e.ircEngine.SendMessage(botNick, fmt.Sprintf("XDCC SEND %d", packageNo))
 
 		e.downloadsMutex.Lock()
-		e.Downloads[fileName] = &Download{Status: Waiting}
+		e.Downloads[fileName] = &Download{Status: Waiting, BotNick: botNick, PackageNo: packageNo}
 		e.downloadsMutex.Unlock()
 
 		r <- true

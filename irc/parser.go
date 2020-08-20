@@ -62,6 +62,8 @@ var dccSendMsgPattern = regexp.MustCompile(
 	"^\x01?DCC SEND \"?([^\"]*)\"? ([0-9]*) ([0-9]*) ([0-9]*)",
 )
 
+// Parse is a poor man's IRC parser. It supports only small subset of the protocol that
+// satisfies needs of XDCC downloader.
 func Parse(line string) Packet {
 	captures := pingPattern.FindAllStringSubmatch(line, -1)
 
